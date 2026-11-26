@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ngds-cicd
+  namespace: ngds
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ngds-cicd
+  template:
+    metadata:
+      labels:
+        app: ngds-cicd
+    spec:
+      imagePullSecrets:
+      - name: ghcr-cred               # deploy Job이 GHCR_TOKEN으로 만드는 Secret
+      containers:
+      - name: web
+        image: ghcr.io/<github-id>/ngds-cicd:latest
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5000

@@ -1,0 +1,66 @@
+name: ngds-cicd
+on:
+  push:
+    branches: [main]
+
+env:
+  IMAGE: ghcr.io/<github-id>/ngds-cicd
+  TAG: ${{ github.sha }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest
+
+  build:                                   # CI
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: APP_VERSION=${{ env.TAG }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.TAG }}
+            ${{ env.IMAGE }}:latest
+
+  deploy:                                  # CD
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+      - uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          envs: IMAGE,TAG,GHCR_USER,GHCR_TOKEN
+          script: |
+            set -e
+            kubectl create namespace ngds --dry-run=client -o yaml | kubectl apply -f -
+            # GHCR 로그인 정보를 imagePullSecret으로 만들거나 갱신
+            kubectl create secret docker-registry ghcr-cred -n ngds \
+              --docker-server=ghcr.io \
+              --docker-username=$GHCR_USER \
+              --docker-password=$GHCR_TOKEN \
+              --dry-run=client -o yaml | kubectl apply -f -
+            kubectl set image deployment/ngds-cicd web=$IMAGE:$TAG -n ngds
+            kubectl rollout status deployment/ngds-cicd -n ngds --timeout=120s
