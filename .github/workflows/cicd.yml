@@ -2,6 +2,7 @@ name: ngds-cicd
 on:
   push:
     branches: [main]
+  workflow_dispatch:        # Actions 탭의 Run workflow 버튼으로 수동 실행
 
 env:
   TAG: ${{ github.sha }}
